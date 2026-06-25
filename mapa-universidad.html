@@ -1,0 +1,546 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Navegación - UAC</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', sans-serif; background: #1a237e; display: flex; flex-direction: column; height: 100vh; overflow: hidden; }
+
+    header {
+      background: linear-gradient(135deg, #1a237e, #3949ab);
+      color: white;
+      padding: 12px 18px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-shrink: 0;
+      border-bottom: 2px solid #3949ab;
+    }
+    header h1 { font-size: 0.95rem; }
+    header p  { font-size: 0.72rem; opacity: 0.85; }
+
+    /* Pestañas de piso */
+    #tabs {
+      display: flex;
+      background: #283593;
+      overflow-x: auto;
+      flex-shrink: 0;
+    }
+    .tab {
+      flex: 1;
+      min-width: 60px;
+      padding: 8px 4px;
+      color: #9fa8da;
+      font-size: 0.72rem;
+      text-align: center;
+      cursor: default;
+      border-bottom: 3px solid transparent;
+      transition: all 0.3s;
+      white-space: nowrap;
+    }
+    .tab.active   { color: #fff; border-bottom-color: #ff5252; font-weight: bold; }
+    .tab.visited  { color: #80cbc4; }
+
+    #step-label {
+      background: #e8eaf6;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #1a237e;
+      padding: 5px 10px;
+      font-weight: 600;
+      flex-shrink: 0;
+      min-height: 28px;
+    }
+
+    #map-container {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: #e8eaf6;
+    }
+    canvas { position: absolute; top: 0; left: 0; }
+
+    /* Overlay "¡Llegaste!" */
+    #llegaste {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.55);
+      align-items: center;
+      justify-content: center;
+      z-index: 10;
+    }
+    #llegaste.show { display: flex; }
+    .llegaste-box {
+      background: white;
+      border-radius: 20px;
+      padding: 32px 28px;
+      text-align: center;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.4);
+      animation: popIn 0.4s ease;
+    }
+    @keyframes popIn { from { transform: scale(0.5); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+    .llegaste-box h2 { font-size: 1.6rem; color: #1a237e; margin: 10px 0 4px; }
+    .llegaste-box p  { font-size: 0.9rem; color: #555; margin-bottom: 16px; }
+    .llegaste-box button {
+      background: #1a237e; color: white; border: none;
+      padding: 11px 28px; border-radius: 10px; font-size: 0.95rem; cursor: pointer;
+    }
+
+    #confetti-canvas { position: fixed; inset: 0; pointer-events: none; z-index: 20; }
+
+    .bottom-bar {
+      background: white;
+      padding: 10px 14px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+      box-shadow: 0 -2px 10px rgba(0,0,0,0.12);
+      flex-shrink: 0;
+    }
+    #btn-ir {
+      flex: 1;
+      background: #1a237e;
+      color: white;
+      border: none;
+      padding: 13px;
+      border-radius: 10px;
+      font-size: 1rem;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #btn-ir:hover { background: #283593; }
+    #btn-reset {
+      background: #e53935;
+      color: white;
+      border: none;
+      padding: 13px 16px;
+      border-radius: 10px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      display: none;
+    }
+    #pct { font-size: 0.8rem; color: #444; text-align: center; min-width: 50px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <span style="font-size:1.7rem">🎓</span>
+  <div>
+    <h1>Universidad Autónoma de Chile</h1>
+    <p>Navegación interior · Pedro de Valdivia 641</p>
+  </div>
+</header>
+
+<div id="tabs">
+  <div class="tab active" id="tab-0">🚪 Entrada</div>
+  <div class="tab" id="tab-1">🏢 Piso 1</div>
+  <div class="tab" id="tab-2">🛗 Subida</div>
+  <div class="tab" id="tab-3">6️⃣ Piso 6</div>
+  <div class="tab" id="tab-4">📚 Sala</div>
+</div>
+
+<div id="step-label">Entrada principal de la universidad</div>
+
+<div id="map-container">
+  <canvas id="bg"></canvas>
+  <canvas id="anim"></canvas>
+
+  <div id="llegaste">
+    <div class="llegaste-box">
+      <div style="font-size:3rem">🎉</div>
+      <h2>¡Llegaste!</h2>
+      <p>Sala de clases · Piso 6</p>
+      <button onclick="resetNav()">↩ Volver a empezar</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="confetti-canvas"></canvas>
+
+<div class="bottom-bar">
+  <button id="btn-ir" onclick="startNav()">🧭 Ir a mi sala</button>
+  <button id="btn-reset" onclick="resetNav()">↩ Reiniciar</button>
+  <div id="pct">Listo</div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════════
+//  PISOS: cada piso tiene habitaciones + segmento de ruta propio
+// ═══════════════════════════════════════════════════════════════════
+const FLOORS = [
+  // 0 - ENTRADA / FACHADA
+  {
+    label: 'Entrada principal',
+    bg: '#cfd8dc',
+    rooms: [
+      { label:'🏛️ Fachada UAC', rx:0.05,ry:0.05,rw:0.90,rh:0.30, color:'#e3f2fd' },
+      { label:'🚪 Puerta principal', rx:0.38,ry:0.35,rw:0.24,rh:0.12, color:'#fff9c4' },
+      { label:'Hall de entrada',     rx:0.15,ry:0.47,rw:0.70,rh:0.25, color:'#f5f5f5' },
+      { label:'🛗 Ascensor / 🪜 Escalera', rx:0.70,ry:0.47,rw:0.20,rh:0.40, color:'#ffe0b2' },
+    ],
+    route:[
+      [0.50,0.41],  // puerta
+      [0.50,0.59],  // hall centro
+      [0.80,0.59],  // hacia ascensor
+      [0.80,0.67],  // frente ascensor
+    ]
+  },
+  // 1 - PISO 1
+  {
+    label: 'Avanzando por piso 1 →',
+    bg: '#eceff1',
+    rooms: [
+      { label:'Pasillo principal', rx:0.05,ry:0.42,rw:0.60,rh:0.16, color:'#f5f5f5' },
+      { label:'Recepción',         rx:0.05,ry:0.10,rw:0.30,rh:0.30, color:'#e8eaf6' },
+      { label:'🛗 Ascensor',       rx:0.70,ry:0.10,rw:0.22,rh:0.70, color:'#ffe0b2' },
+    ],
+    route:[
+      [0.10,0.50],
+      [0.65,0.50],
+      [0.81,0.50],
+      [0.81,0.45],
+    ]
+  },
+  // 2 - SUBIDA (ascensor / escalera)
+  {
+    label: 'Subiendo al piso 6 ↑',
+    bg: '#fff3e0',
+    rooms: [
+      { label:'🛗 Ascensor',  rx:0.35,ry:0.05,rw:0.30,rh:0.90, color:'#ffe0b2' },
+      { label:'Piso 1 ↓',    rx:0.05,ry:0.70,rw:0.28,rh:0.20, color:'#e0e0e0' },
+      { label:'Piso 6 ↑',    rx:0.05,ry:0.05,rw:0.28,rh:0.20, color:'#c8e6c9' },
+    ],
+    route:[
+      [0.50,0.85],
+      [0.50,0.60],
+      [0.50,0.35],
+      [0.50,0.12],
+    ]
+  },
+  // 3 - PISO 6
+  {
+    label: 'Piso 6 → gira a la derecha →',
+    bg: '#e8f5e9',
+    rooms: [
+      { label:'🛗 Ascensor',        rx:0.05,ry:0.30,rw:0.18,rh:0.40, color:'#ffe0b2' },
+      { label:'Pasillo piso 6',     rx:0.05,ry:0.42,rw:0.90,rh:0.16, color:'#f5f5f5' },
+      { label:'Aula 601',           rx:0.55,ry:0.10,rw:0.18,rh:0.30, color:'#e8eaf6' },
+      { label:'📚 Sala de Clases',  rx:0.75,ry:0.10,rw:0.20,rh:0.70, color:'#c8e6c9' },
+    ],
+    route:[
+      [0.14,0.50],
+      [0.50,0.50],
+      [0.76,0.50],  // gira derecha
+      [0.76,0.35],  // sube a la sala
+      [0.85,0.35],  // entra a la sala
+      [0.85,0.25],  // destino
+    ]
+  },
+];
+
+// Etiquetas de instrucción por segmento de ruta (índice de punto)
+const STEP_MSGS = [
+  // piso 0
+  ['Entra por la puerta principal','Avanza derecho por el hall','Dirígete al ascensor / escalera','Sube al piso 6'],
+  // piso 1
+  ['Avanza por el pasillo','Sigue derecho','Llega al ascensor','Entra al ascensor'],
+  // subida
+  ['Dentro del ascensor…','Subiendo…','Casi en el piso 6…','¡Piso 6!'],
+  // piso 6
+  ['Sale del ascensor','Camina a la derecha por el pasillo','Gira a la derecha','Avanza hacia la sala','Entra a la sala','¡Llegaste a tu sala! 🎉'],
+];
+
+// ═══════════════════════════════════════════════════════════════════
+const bgCanvas   = document.getElementById('bg');
+const animCanvas = document.getElementById('anim');
+const bgCtx      = bgCanvas.getContext('2d');
+const animCtx    = animCanvas.getContext('2d');
+const confCanvas = document.getElementById('confetti-canvas');
+const confCtx    = confCanvas.getContext('2d');
+
+let currentFloor = 0;
+let globalProgress = 0; // 0 → 1 sobre TODA la ruta combinada
+let animId = null;
+
+// Construir ruta global concatenando todos los pisos
+function buildGlobalRoute() {
+  return FLOORS.map(f => f.route).flat();
+}
+const GLOBAL_ROUTE = buildGlobalRoute();
+
+// Calcular en qué piso y punto local estamos dado un progreso global
+function getFloorInfo(t) {
+  const total = GLOBAL_ROUTE.length - 1;
+  const idx = Math.min(t * total, total - 0.0001);
+  // Contar cuántos puntos pertenecen a cada piso
+  let accumulated = 0;
+  for (let f = 0; f < FLOORS.length; f++) {
+    const pts = FLOORS[f].route.length;
+    if (idx < accumulated + pts - (f < FLOORS.length-1 ? 0 : 0)) {
+      return { floor: f, localIdx: idx - accumulated };
+    }
+    accumulated += pts;
+  }
+  return { floor: FLOORS.length-1, localIdx: FLOORS[FLOORS.length-1].route.length - 1 };
+}
+
+// Punto (x,y,angle) en la ruta del piso actual dado un localIdx fraccional
+function pointOnFloor(floor, localIdx, W, H) {
+  const route = FLOORS[floor].route;
+  const i = Math.min(Math.floor(localIdx), route.length - 2);
+  const frac = localIdx - i;
+  const ax = route[i][0]*W,   ay = route[i][1]*H;
+  const bx = route[i+1][0]*W, by = route[i+1][1]*H;
+  return {
+    x: ax + (bx-ax)*frac,
+    y: ay + (by-ay)*frac,
+    angle: Math.atan2(by-ay, bx-ax),
+    segIdx: i
+  };
+}
+
+function resize() {
+  const cont = document.getElementById('map-container');
+  const W = cont.clientWidth, H = cont.clientHeight;
+  bgCanvas.width = animCanvas.width = W;
+  bgCanvas.height = animCanvas.height = H;
+  confCanvas.width  = window.innerWidth;
+  confCanvas.height = window.innerHeight;
+  drawFloor(currentFloor, W, H);
+}
+
+function drawFloor(f, W, H) {
+  const floor = FLOORS[f];
+  bgCtx.clearRect(0,0,W,H);
+  bgCtx.fillStyle = floor.bg;
+  bgCtx.fillRect(0,0,W,H);
+
+  floor.rooms.forEach(r => {
+    const x=r.rx*W, y=r.ry*H, w=r.rw*W, h=r.rh*H;
+    bgCtx.fillStyle = r.color;
+    bgCtx.fillRect(x,y,w,h);
+    bgCtx.strokeStyle = '#546e7a';
+    bgCtx.lineWidth = 2;
+    bgCtx.strokeRect(x,y,w,h);
+    bgCtx.fillStyle = '#222';
+    bgCtx.font = `bold ${Math.max(10,W*0.026)}px Segoe UI`;
+    bgCtx.textAlign = 'center';
+    bgCtx.textBaseline = 'middle';
+    bgCtx.fillText(r.label, x+w/2, y+h/2);
+  });
+
+  // Ruta punteada
+  bgCtx.setLineDash([5,5]);
+  bgCtx.strokeStyle = '#78909c';
+  bgCtx.lineWidth = 2;
+  bgCtx.beginPath();
+  floor.route.forEach((p,i) => {
+    i===0 ? bgCtx.moveTo(p[0]*W,p[1]*H) : bgCtx.lineTo(p[0]*W,p[1]*H);
+  });
+  bgCtx.stroke();
+  bgCtx.setLineDash([]);
+
+  // Pin inicio
+  const s = floor.route[0];
+  drawPin(bgCtx, s[0]*W, s[1]*H, '📍', W);
+  // Pin fin (solo en el último piso)
+  if (f === FLOORS.length-1) {
+    const e = floor.route[floor.route.length-1];
+    drawPin(bgCtx, e[0]*W, e[1]*H, '🏁', W);
+  }
+}
+
+function drawPin(ctx, x, y, emoji, W) {
+  ctx.font = `${Math.max(16,W*0.04)}px serif`;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'bottom';
+  ctx.fillText(emoji, x, y);
+}
+
+function drawArrow(ctx, x, y, angle, W) {
+  const sz = Math.max(16, W*0.045);
+  ctx.save();
+  ctx.translate(x,y);
+  ctx.rotate(angle);
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 8;
+  ctx.fillStyle = '#ff1744';
+  ctx.beginPath();
+  ctx.moveTo(sz, 0);
+  ctx.lineTo(-sz*0.55,  sz*0.45);
+  ctx.lineTo(-sz*0.15,  0);
+  ctx.lineTo(-sz*0.55, -sz*0.45);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  ANIMACIÓN PRINCIPAL
+// ═══════════════════════════════════════════════════════════════════
+const TOTAL_PTS = GLOBAL_ROUTE.length - 1;
+const SPEED = 0.0018;
+
+// Precalcular a qué piso pertenece cada punto global
+function floorOfGlobalIdx(idx) {
+  let acc = 0;
+  for (let f = 0; f < FLOORS.length; f++) {
+    acc += FLOORS[f].route.length;
+    if (idx < acc) return f;
+  }
+  return FLOORS.length-1;
+}
+
+// Convertir progreso global (0-1) → {floor, localIdx}
+function globalToLocal(t) {
+  const raw = t * TOTAL_PTS;
+  let acc = 0;
+  for (let f = 0; f < FLOORS.length; f++) {
+    const pts = FLOORS[f].route.length;
+    if (raw < acc + pts) {
+      return { floor: f, localIdx: raw - acc };
+    }
+    acc += pts;
+  }
+  return { floor: FLOORS.length-1, localIdx: FLOORS[FLOORS.length-1].route.length - 1 };
+}
+
+function animate() {
+  const W = animCanvas.width, H = animCanvas.height;
+  animCtx.clearRect(0,0,W,H);
+
+  if (globalProgress >= 1) {
+    showLlegaste();
+    return;
+  }
+
+  const { floor, localIdx } = globalToLocal(globalProgress);
+
+  // Cambiar piso si hace falta
+  if (floor !== currentFloor) {
+    currentFloor = floor;
+    drawFloor(floor, W, H);
+    updateTabs(floor);
+  }
+
+  // Instrucción del paso
+  const segIdx = Math.min(Math.floor(localIdx), STEP_MSGS[floor].length-1);
+  document.getElementById('step-label').textContent = STEP_MSGS[floor][segIdx];
+
+  const pos = pointOnFloor(floor, localIdx, W, H);
+  drawArrow(animCtx, pos.x, pos.y, pos.angle, W);
+
+  const pct = Math.round(globalProgress * 100);
+  document.getElementById('pct').textContent = pct + '%';
+
+  globalProgress += SPEED;
+  animId = requestAnimationFrame(animate);
+}
+
+function updateTabs(activeFloor) {
+  // Mapear floor index → tab index (0=entrada,1=piso1,2=subida,3=piso6+sala)
+  const tabMap = [0,1,2,3,4];
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.remove('active','visited');
+    if (i === activeFloor)      t.classList.add('active');
+    else if (i < activeFloor)   t.classList.add('visited');
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════════
+//  CONFETI
+// ═══════════════════════════════════════════════════════════════════
+let confettiPieces = [];
+let confAnimId = null;
+
+function launchConfetti() {
+  confCanvas.width  = window.innerWidth;
+  confCanvas.height = window.innerHeight;
+  confettiPieces = Array.from({length:120}, () => ({
+    x: Math.random() * confCanvas.width,
+    y: Math.random() * confCanvas.height - confCanvas.height,
+    w: 8 + Math.random()*8,
+    h: 6 + Math.random()*6,
+    color: ['#ff1744','#2979ff','#00e676','#ffea00','#ff9100','#e040fb'][Math.floor(Math.random()*6)],
+    vx: (Math.random()-0.5)*3,
+    vy: 2 + Math.random()*4,
+    rot: Math.random()*360,
+    rotV: (Math.random()-0.5)*6,
+    alpha: 1
+  }));
+  animateConfetti();
+}
+
+function animateConfetti() {
+  confCtx.clearRect(0,0,confCanvas.width,confCanvas.height);
+  let alive = false;
+  confettiPieces.forEach(p => {
+    p.x  += p.vx;
+    p.y  += p.vy;
+    p.rot += p.rotV;
+    if (p.y > confCanvas.height * 0.8) p.alpha -= 0.015;
+    if (p.alpha > 0) {
+      alive = true;
+      confCtx.save();
+      confCtx.globalAlpha = Math.max(0, p.alpha);
+      confCtx.translate(p.x, p.y);
+      confCtx.rotate(p.rot * Math.PI/180);
+      confCtx.fillStyle = p.color;
+      confCtx.fillRect(-p.w/2, -p.h/2, p.w, p.h);
+      confCtx.restore();
+    }
+  });
+  if (alive) confAnimId = requestAnimationFrame(animateConfetti);
+  else confCtx.clearRect(0,0,confCanvas.width,confCanvas.height);
+}
+
+function showLlegaste() {
+  document.getElementById('llegaste').classList.add('show');
+  document.getElementById('btn-reset').style.display = 'inline-block';
+  document.getElementById('pct').textContent = '100%';
+  launchConfetti();
+}
+
+// ═══════════════════════════════════════════════════════════════════
+function startNav() {
+  if (animId) return;
+  globalProgress = 0;
+  currentFloor = 0;
+  document.getElementById('btn-ir').style.display = 'none';
+  document.getElementById('btn-reset').style.display = 'none';
+  document.getElementById('pct').textContent = '0%';
+  const W = bgCanvas.width, H = bgCanvas.height;
+  drawFloor(0, W, H);
+  updateTabs(0);
+  animate();
+}
+
+function resetNav() {
+  if (animId)     { cancelAnimationFrame(animId);     animId = null; }
+  if (confAnimId) { cancelAnimationFrame(confAnimId); confAnimId = null; }
+  confCtx.clearRect(0,0,confCanvas.width,confCanvas.height);
+  globalProgress = 0;
+  currentFloor = 0;
+  document.getElementById('llegaste').classList.remove('show');
+  document.getElementById('btn-ir').style.display = 'flex';
+  document.getElementById('btn-reset').style.display = 'none';
+  document.getElementById('pct').textContent = 'Listo';
+  document.getElementById('step-label').textContent = 'Entrada principal de la universidad';
+  document.querySelectorAll('.tab').forEach((t,i) => {
+    t.classList.remove('active','visited');
+    if (i===0) t.classList.add('active');
+  });
+  const W = bgCanvas.width, H = bgCanvas.height;
+  animCanvas.getContext('2d').clearRect(0,0,W,H);
+  drawFloor(0, W, H);
+}
+
+window.addEventListener('resize', resize);
+resize();
+</script>
+</body>
+</html>
